@@ -1,9 +1,10 @@
 import feedparser
 import os
 import requests
+import urllib.parse  # 공백 처리를 위해 추가
 from openai import OpenAI
 
-# 1. 설정 (키워드 수정 가능)
+# 1. 설정
 KEYWORDS = ["게임기획 AI", "game monetization design", "loyalty system game", "live ops retention"]
 SLACK_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -13,17 +14,23 @@ client = OpenAI(api_key=OPENAI_KEY)
 def fetch_news():
     articles = []
     for kw in KEYWORDS:
-        url = f"https://news.google.com/rss/search?q={kw}&hl=ko&gl=KR&ceid=KR:ko"
+        # 공백 등을 URL 형식으로 안전하게 변환 (예: " " -> "%20")
+        encoded_kw = urllib.parse.quote(kw)
+        url = f"https://news.google.com/rss/search?q={encoded_kw}&hl=ko&gl=KR&ceid=KR:ko"
+        
         feed = feedparser.parse(url)
-        for entry in feed.entries[:3]: # 키워드당 3개씩
+        for entry in feed.entries[:3]:
             articles.append({"title": entry.title, "link": entry.link})
     return articles
 
 def analyze_and_send():
     news_list = fetch_news()
+    if not news_list:
+        print("검색된 뉴스가 없습니다.")
+        return
+
     news_text = "\n".join([f"- {a['title']} ({a['link']})" for a in news_list])
     
-    # 테오의 업무 맥락(골든호밍, 로열티 등)을 반영한 프롬프트
     prompt = f"""
     너는 게임 기획 전략가야. 아래 뉴스 목록 중 기획자에게 유익한 5개를 선정해줘.
     특히 '로열티 시스템', '유저 리텐션', 'BM 설계'와 관련 있으면 우선순위를 높여줘.
@@ -44,7 +51,7 @@ def analyze_and_send():
     
     result = response.choices[0].message.content
     
-    # 슬랙 전송
+    # 슬랙 전송 (채널명이 #general인지 꼭 확인해주세요!)
     requests.post(
         "https://slack.com/api/chat.postMessage",
         headers={"Authorization": f"Bearer {SLACK_TOKEN}"},
